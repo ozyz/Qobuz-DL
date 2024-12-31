@@ -2,15 +2,7 @@ import type { NextConfig } from "next";
 import fs from 'fs';
 import path from "path";
 
-const httpsOptions = {
-  key: fs.readFileSync(path.join(__dirname, 'localhost-key.pem')),
-  cert: fs.readFileSync(path.join(__dirname, 'localhost-cert.pem')),
-};
-
 const nextConfig: NextConfig = {
-  devServer: {
-      https: httpsOptions,
-  },
   images: {
     remotePatterns: [
       {
