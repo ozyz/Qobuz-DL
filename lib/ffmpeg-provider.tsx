@@ -1,5 +1,5 @@
 "use client"
-import React, { createContext, useContext, useState, ReactNode, use, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { createFFmpeg, FFmpegType } from './ffmpeg-functions';
 
 const FFmpegContext = createContext<{
@@ -8,9 +8,9 @@ const FFmpegContext = createContext<{
 } | undefined>(undefined);
 
 export const FFmpegProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    if (typeof window === 'undefined') return <>{children}</>
-    const [ffmpegState, setFFmpeg] = useState(createFFmpeg());
-
+    const [ffmpegState, setFFmpeg] = useState(() =>
+        typeof window !== 'undefined' ? createFFmpeg() : null
+    );
 
     return (
         <FFmpegContext.Provider value={{ ffmpegState, setFFmpeg }}>

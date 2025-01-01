@@ -1,7 +1,7 @@
 "use client"
 
 import SearchBar from '@/components/search-bar';
-import React, { JSX, use, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import axios from 'axios';
 import { SearchIcon, Loader2Icon, Disc3Icon, DiscAlbumIcon } from 'lucide-react';
 import { QobuzAlbum, QobuzSearchResults, QobuzTrack } from '@/lib/qobuz-dl';
@@ -80,7 +80,7 @@ const SearchView = () => {
         if (!element) return;
 
         const resizeObserver = new ResizeObserver((entries) => {
-            for (let entry of entries) {
+            for (const entry of entries) {
                 if (entry.target === element) {
                     setCardHeight(entry.contentRect.height);
                 }

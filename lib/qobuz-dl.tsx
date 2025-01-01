@@ -119,7 +119,6 @@ export async function search(query: string, limit: number = 10, offset: number =
     url.searchParams.append("query", query)
     url.searchParams.append("limit", limit.toString());
     url.searchParams.append("offset", offset.toString());
-    const tokens = JSON.parse(process.env.QOBUZ_AUTH_TOKENS!);
     const response = await axios.get(url.toString(), {
         headers: {
             "x-app-id": process.env.QOBUZ_APP_ID!,

@@ -72,7 +72,7 @@ export const createDownloadJob = async (result: QobuzAlbum | QobuzTrack, setStat
                     }
                     const albumTracks = fetchedAlbumData!.tracks.items.map((track: QobuzTrack) => ({...track, album: fetchedAlbumData})) as QobuzTrack[];
                     let totalAlbumSize = 0;
-                    let albumUrls = [] as string[];
+                    const albumUrls = [] as string[];
                     setStatusBar(prev => ({ ...prev, description: "Fetching album size..." }));
                     for (const [index, track] of albumTracks.entries()) {
                         const fileURLResponse = await axios.get("/api/download-music", { params: { track_id: track.id, quality: settings.outputQuality }, signal });
@@ -83,7 +83,7 @@ export const createDownloadJob = async (result: QobuzAlbum | QobuzTrack, setStat
                         const fileSize = parseInt(fileSizeResponse.headers["content-length"]);
                         totalAlbumSize += fileSize;
                     }
-                    let trackBlobs = [] as Blob[];
+                    const trackBlobs = [] as Blob[];
                     let totalBytesDownloaded = 0;
                     setStatusBar(statusBar => ({ ...statusBar, progress: 0, description: `Fetching album art...` }));
                     const albumArt = (await axios.get(await getFullResImage(fetchedAlbumData!), { responseType: 'arraybuffer' })).data

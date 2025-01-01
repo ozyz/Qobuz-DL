@@ -11,7 +11,7 @@ import { SettingsProvider } from "@/lib/settings-provider";
 import { BackgroundProvider } from "@/lib/background-provider";
 import { Button } from "@/components/ui/button";
 import { InfoIcon, Link } from "lucide-react";
-import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger, DialogHeader } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { FaGithub } from "@react-icons/all-files/fa/FaGithub";
 import { FaDiscord } from "@react-icons/all-files/fa/FaDiscord";
