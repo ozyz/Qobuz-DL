@@ -111,7 +111,11 @@ const ReleaseCard = ({ result, resolvedTheme, ref }: { result: QobuzAlbum | Qobu
             <Dialog open={openTracklist} onOpenChange={setOpenTracklist}>
                 <DialogContent className='w-[600px] max-w-[90%] md:max-w-[80%] overflow-hidden'>
                     <div className="flex gap-3 overflow-hidden">
-                        <img src={(result as QobuzAlbum)?.image?.small || (result as QobuzTrack)?.album?.image?.small} alt={formatTitle(result)} crossOrigin='anonymous' height={100} width={100} className='aspect-square' />
+                        <div className="relative aspect-square min-w-[100px] min-h-[100px] rounded-sm overflow-hidden">
+                            <Skeleton className='absolute aspect-square w-full h-full'/>
+                            {typeof loadedImage === "string" && <img src={loadedImage} alt={formatTitle(result)} crossOrigin='anonymous' className='absolute aspect-square w-full h-full' />}
+                        </div>
+                        
                         <div className="flex flex-col justify-between overflow-hidden">
                             <div className="space-y-1.5 overflow-visible">
                                 <DialogTitle className='truncate overflow-visible py-0.5'>{formatTitle(getAlbum(result))}</DialogTitle>

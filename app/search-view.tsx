@@ -4,7 +4,7 @@ import SearchBar from '@/components/search-bar';
 import React, { JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import axios from 'axios';
 import { SearchIcon, Loader2Icon, Disc3Icon, DiscAlbumIcon } from 'lucide-react';
-import { QobuzAlbum, QobuzSearchResults, QobuzTrack } from '@/lib/qobuz-dl';
+import { filterExplicit, QobuzAlbum, QobuzSearchResults, QobuzTrack } from '@/lib/qobuz-dl';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -18,6 +18,7 @@ import ReleaseCard from '@/components/release-card';
 import { useInView } from "react-intersection-observer";
 import { Skeleton } from '@/components/ui/skeleton';
 import { getTailwindBreakpoint } from '@/lib/utils';
+import { useSettings } from '@/lib/settings-provider';
 
 const SearchView = () => {
     const [searchIcon, setSearchIcon] = useState<JSX.Element>(<SearchIcon className='!size-5' />);
@@ -26,6 +27,9 @@ const SearchView = () => {
     const [searchField, setSearchField] = useState<"albums" | "tracks">('albums');
     const [query, setQuery] = useState<string>('');
     const [loading, setLoading] = useState<boolean>(false);
+    const [searching, setSearching] = useState<boolean>(false);
+    const [searchError, setSearchError] = useState<string>('');
+    const { settings } = useSettings();
 
     const filterData = [
         {
@@ -92,7 +96,7 @@ const SearchView = () => {
         return () => {
             resizeObserver.disconnect();
         };
-    }, [results]);
+    }, [results, settings.explicitContent]);
 
     useLayoutEffect(() => {
         const handleResize = () => {
@@ -132,13 +136,19 @@ const SearchView = () => {
                     <SearchBar icon={searchIcon} onSearch={async (query: string) => {
                         setSearchIcon(<Loader2Icon className='animate-spin !size-5' />);
                         setQuery(query);
-                        const response = await axios.get(`/api/get-music?q=${query}&offset=0`);
-                        if (response.status === 200) {
-                            setLoading(false);
-                            setResults(response.data.data);
+                        setSearchError('');
+                        try {
+                            const response = await axios.get(`/api/get-music?q=${query}&offset=0`);
+                            if (response.status === 200) {
+                                setLoading(false);
+                                setResults(response.data.data);
+                            }
+                        } catch (error: any) {
+                            setSearchError(error?.response.data?.error || error.message || 'An error occurred.');
                         }
                         setSearchIcon(<SearchIcon className='!size-5' />);
-                    }} />
+                        setSearching(false);
+                    }} searching={searching} setSearching={setSearching} />
 
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -160,6 +170,7 @@ const SearchView = () => {
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
+                    {searchError && <p className="text-destructive w-full text-center font-semibold">{searchError}</p>}
                 </div>
             </div>
 
@@ -167,15 +178,15 @@ const SearchView = () => {
             {results && <div className="my-6 w-screen mx-auto max-w-[1600px] pb-20">
                     <div
                         className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4 w-full px-6 overflow-visible"
-                        style={{ maxHeight: `${(Math.ceil(results![searchField].items.length / numRows) + 2) * (cardHeight + 16)}px` }}
+                        style={{ maxHeight: `${(Math.ceil(filterExplicit(results, settings.explicitContent)[searchField].items.length / numRows) + 2) * (cardHeight + 16)}px` }}
                     >
-                        {results![searchField].items.map((result: QobuzAlbum | QobuzTrack, index: number) => {
+                        {filterExplicit(results, settings.explicitContent)[searchField].items.map((result: QobuzAlbum | QobuzTrack, index: number) => {
                             return (
                                 <ReleaseCard
                                     key={index}
                                     result={result}
                                     resolvedTheme={resolvedTheme as "dark" | "light" || "dark" as const}
-                                    ref={index === results![searchField].items.length - 1 ? finalItemRef : null}
+                                    ref={index === filterExplicit(results, settings.explicitContent)[searchField].items.length - 1 ? finalItemRef : null}
                                 />
                             );
                         })}

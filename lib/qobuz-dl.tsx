@@ -114,7 +114,21 @@ export function getRandomToken() {
     return JSON.parse(process.env.QOBUZ_AUTH_TOKENS!)[Math.floor(Math.random() * JSON.parse(process.env.QOBUZ_AUTH_TOKENS!).length)] as string;
 }
 
+export function filterExplicit(results: QobuzSearchResults, explicit: boolean = true) {
+    return {...results,
+        albums: {
+            ...results.albums,
+            items: results.albums.items.filter(album => explicit ? true : !album.parental_warning)
+        },
+        tracks: {
+            ...results.tracks,
+            items: results.tracks.items.filter(track => explicit ? true : !track.parental_warning)
+        }
+    }
+}
+
 export async function search(query: string, limit: number = 10, offset: number = 0) {
+    testForRequirements();
     const url = new URL(process.env.QOBUZ_API_BASE + "catalog/search")
     url.searchParams.append("query", query)
     url.searchParams.append("limit", limit.toString());
@@ -129,6 +143,7 @@ export async function search(query: string, limit: number = 10, offset: number =
 }
 
 export async function getDownloadURL(trackID: number, quality: string) {
+    testForRequirements();
     const timestamp = Math.floor(new Date().getTime() / 1000);
     const r_sig = `trackgetFileUrlformat_id${quality}intentstreamtrack_id${trackID}${timestamp}${process.env.QOBUZ_SECRET}`;
     const r_sig_hashed = MD5(r_sig).toString(Hex);
@@ -151,6 +166,7 @@ export async function getDownloadURL(trackID: number, quality: string) {
 }
 
 export async function getAlbumInfo(album_id: string) {
+    testForRequirements();
     const url = new URL(process.env.QOBUZ_API_BASE + 'album/get');
     url.searchParams.append("album_id", album_id);
     url.searchParams.append("extra", "track_ids");
@@ -192,4 +208,12 @@ export function formatDuration(seconds: number) {
     const remainingMinutes = totalMinutes % 60;
 
     return `${hours > 0 ? hours + "h " : ""} ${remainingMinutes}m`;
+}
+
+export function testForRequirements() {
+    if (process.env.QOBUZ_APP_ID?.length === 0) throw new Error("Deployment is missing QOBUZ_APP_ID environment variable.");
+    if (process.env.QOBUZ_AUTH_TOKENS?.length === 0) throw new Error("Deployment is missing QOBUZ_AUTH_TOKENS environment variable.");
+    if (process.env.QOBUZ_SECRET?.length === 0) throw new Error("Deployment is missing QOBUZ_SECRET environment variable.");
+    if (process.env.QOBUZ_API_BASE?.length === 0) throw new Error("Deployment is missing QOBUZ_API_BASE environment variable.");
+    return true;
 }
