@@ -17,6 +17,9 @@ const eslintConfig = [
       "@next/next/no-img-element": "off",
       "@next/next/no-sync-scripts": "off",
       "react-hooks/exhaustive-deps": "off",
+      "no-var": "off",
+      "@typescript-eslint/no-unused-vars": "off",
+      "@typescript-eslint/no-require-imports": "off"
     },
   },
 ];

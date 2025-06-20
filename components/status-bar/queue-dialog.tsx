@@ -1,22 +1,23 @@
 import React from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import QueueView from './queue-view'
-import type { QueueProps } from './status-bar'
+import { Job } from '@/lib/server/queue'
 
-const QueueDialog = ({ open, setOpen, queueItems }: { open: boolean, setOpen: (open: boolean) => void, queueItems: QueueProps[] | [] }) => {
+const QueueDialog = ({ open, setOpen, queueItems, currentJob }: { open: boolean, setOpen: (open: boolean) => void, queueItems: Job[], currentJob: Job | null }) => {
+    const totalItems = queueItems.length + (currentJob ? 1 : 0);
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogContent className="sm:max-w-[600px]">
                 <DialogHeader>
                     <DialogTitle>Queue</DialogTitle>
                     <DialogDescription>
-                        {queueItems.length > 0
-                            ? `${queueItems.length} ${queueItems.length > 1 ? 'items' : 'item'} in queue`
+                        {totalItems > 0
+                            ? `${totalItems} ${totalItems > 1 ? 'items' : 'item'} in queue`
                             : 'No items in the queue'
                         }
                     </DialogDescription>
                 </DialogHeader>
-                <QueueView queueItems={queueItems} />
+                <QueueView queueItems={queueItems} currentJob={currentJob} />
             </DialogContent>
         </Dialog>
     )

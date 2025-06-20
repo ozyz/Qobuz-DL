@@ -2,13 +2,8 @@ import type { Metadata } from "next";
 import { Inter } from 'next/font/google'
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider"
-import ParticlesComponent from "@/components/particles";
 import { StatusBarProvider } from "@/lib/status-bar/context";
 import StatusBarContainer from "@/components/status-bar/container";
-import { FFmpegProvider } from "@/lib/ffmpeg-provider";
-import SettingsForm from "@/components/ui/settings-form";
-import { SettingsProvider } from "@/lib/settings-provider";
-import { BackgroundProvider } from "@/lib/background-provider";
 import { Toaster } from "@/components/ui/toaster"
 import { DropdownMenu, DropdownMenuItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -39,67 +34,53 @@ export const metadata: Metadata = {
         "hi-res",
         "qobuz",
         "flac",
-        "alac",
-        "mp3",
-        "aac",
-        "opus",
-        "wav"
     ]
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
     return (
-        <html lang="en" suppressHydrationWarning>
-            <body className={`${inter.className} antialiased`}>
-                <FFmpegProvider>
-                    <StatusBarProvider>
-                        <SettingsProvider>
-                            <BackgroundProvider>
-                                <ThemeProvider
-                                    attribute="class"
-                                    defaultTheme="dark"
-                                    enableSystem
-                                >
-                                    <ParticlesComponent className="z-[-1] h-full w-full fixed" />
-                                    <div className="fixed justify-between items-center flex w-full max-w-screen p-4 z-[10]">
-                                        <SettingsForm />
-                                        <div className="flex gap-2 items-center">
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="outline" size="icon">
-                                                        <FaDiscord />
-                                                    </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent>
-                                                    <DropdownMenuItem>
-                                                        <a href="https://discord.com/invite/mWQ6bCfkfA" target="_blank" rel="noopener noreferrer">Qobuz-DL Discord</a>
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem>
-                                                        <a href="https://discord.gg/invite/GN7GnntyQ2" target="_blank" rel="noopener noreferrer">Squidboard Discord</a>
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
-                                            <a href="https://github.com/QobuzDL/Qobuz-DL" target="_blank" rel="noopener noreferrer">
-                                                <Button variant="outline" size="icon">
-                                                    <FaGithub />
-                                                </Button>
-                                            </a>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col min-h-screen">
-                                        <main className="px-6 pb-12 pt-32 md:pt-24 2xl:pt-60 min-h-full flex-1 flex flex-col items-center justify-center gap-2 z-[2] overflow-x-hidden max-w-screen overflow-y-hidden">
-                                            {children}
-                                        </main>
-                                        <Toaster />
-                                        <StatusBarContainer />
-                                    </div>
-                                </ThemeProvider>
-                            </BackgroundProvider>
-                        </SettingsProvider>
-                    </StatusBarProvider>
-                    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.9.7/dist/ffmpeg.min.js"></script>
-                    <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
-                </FFmpegProvider>
+        <html lang="en" className="dark" suppressHydrationWarning>
+            <body className={`${inter.className} antialiased`} suppressHydrationWarning>
+                <StatusBarProvider>
+                    <ThemeProvider
+                        attribute="class"
+                        defaultTheme="dark"
+                    >
+                        <div className="fixed justify-between items-center flex w-full max-w-screen p-4 z-[10]">
+                            {/* Placeholder for future top-left items if needed */}
+                            <div></div>
+                            <div className="flex gap-2 items-center">
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="outline" size="icon">
+                                            <FaDiscord />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent>
+                                        <DropdownMenuItem>
+                                            <a href="https://discord.com/invite/mWQ6bCfkfA" target="_blank" rel="noopener noreferrer">Qobuz-DL Discord</a>
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem>
+                                            <a href="https://discord.gg/invite/GN7GnntyQ2" target="_blank" rel="noopener noreferrer">Squidboard Discord</a>
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                                <a href="https://github.com/QobuzDL/Qobuz-DL" target="_blank" rel="noopener noreferrer">
+                                    <Button variant="outline" size="icon">
+                                        <FaGithub />
+                                    </Button>
+                                </a>
+                            </div>
+                        </div>
+                        <div className="flex flex-col min-h-screen">
+                            <main className="px-6 pb-12 pt-32 md:pt-24 2xl:pt-60 min-h-full flex-1 flex flex-col items-center justify-center gap-2 z-[2] overflow-x-hidden max-w-screen overflow-y-hidden">
+                                {children}
+                            </main>
+                            <Toaster />
+                            <StatusBarContainer />
+                        </div>
+                    </ThemeProvider>
+                </StatusBarProvider>
             </body>
         </html>
     );

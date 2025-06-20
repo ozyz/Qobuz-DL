@@ -3,8 +3,6 @@ import { cn } from '@/lib/utils'
 import { AlignJustifyIcon, DotIcon, DownloadIcon, UsersIcon } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
 import { Button } from './ui/button'
-import { useStatusBar } from '@/lib/status-bar/context'
-import { useFFmpeg } from '@/lib/ffmpeg-provider'
 import {
     Dialog,
     DialogContent,
@@ -14,37 +12,45 @@ import {
 import { Separator } from './ui/separator'
 import { ScrollArea } from './ui/scroll-area'
 import { motion, useAnimation } from 'motion/react'
-import { createDownloadJob } from '@/lib/download-job'
-import { useSettings } from '@/lib/settings-provider'
 import { Skeleton } from './ui/skeleton'
-import { useToast } from "@/hooks/use-toast"
+import { useSimpleToast } from "@/hooks/use-simple-toast"
 import Image from 'next/image'
-import DownloadAlbumButton from './download-album-button'
+import DownloadButton from './download-album-button'
 import { filterData } from '@/app/search-view'
 import ArtistDialog from './artist-dialog'
+import axios from 'axios'
 
-const ReleaseCard = ({ result, resolvedTheme, ref, showArtistDialog }: { result: QobuzAlbum | QobuzTrack | QobuzArtist, resolvedTheme: string, ref?: React.Ref<HTMLDivElement>, showArtistDialog?: boolean }) => {
-    if (typeof showArtistDialog === 'undefined') showArtistDialog = true;
-    const { ffmpegState } = useFFmpeg();
-    const { setStatusBar } = useStatusBar();
-    const { settings } = useSettings();
-
+const ReleaseCard = React.forwardRef<HTMLDivElement, { result: QobuzAlbum | QobuzTrack | QobuzArtist, resolvedTheme: string, showArtistDialog?: boolean }>(({ result, resolvedTheme, showArtistDialog = true }, ref) => {
     const [openTracklist, setOpenTracklist] = useState(false);
     const [fetchedAlbumData, setFetchedAlbumData] = useState<FetchedQobuzAlbum | null>(null);
-    const [focusCard, setFocusCard] = useState(false);
 
-    const { toast } = useToast();
+    const { toast } = useSimpleToast();
 
     const album = getAlbum(result) || null;
 
     const [imageLoaded, setImageLoaded] = useState(false);
     const imageAnimationControls = useAnimation();
 
+    const artist = (result as QobuzAlbum).artist ?? (result as QobuzTrack).performer ?? (result as QobuzTrack).composer;
+
     useEffect(() => {
         if (imageLoaded) imageAnimationControls.start({ scale: 1 });
-    }, [imageLoaded])
+    }, [imageLoaded, imageAnimationControls])
 
     const [openArtistDialog, setOpenArtistDialog] = useState(false);
+
+    const queueServerDownload = async (item: QobuzAlbum | QobuzTrack) => {
+        try {
+            const { data } = await axios.post('/api/server-download', { item });
+            toast({ title: data.message });
+        } catch (error: any) {
+            toast({
+                title: "Error queueing download",
+                description: error?.response?.data?.message || error.message,
+                variant: "destructive"
+            });
+        }
+    };
 
     return (
         <div
@@ -53,10 +59,10 @@ const ReleaseCard = ({ result, resolvedTheme, ref, showArtistDialog }: { result:
             ref={ref || undefined}
         >
             <div className='relative w-full aspect-square group select-none rounded-sm overflow-hidden'>
-                <div className={cn(`w-full z-[3] backdrop-blur-md top-0 left-0 absolute transition-all aspect-square opacity-0 group-hover:opacity-100 ${focusCard && 'opacity-100'}`,
+                <div className={cn(`w-full z-[3] backdrop-blur-md top-0 left-0 absolute transition-all aspect-square opacity-0 group-hover:opacity-100`,
                     resolvedTheme != 'light'
-                        ? `group-hover:bg-black/40 ${focusCard && 'bg-black/40'}`
-                        : `group-hover:bg-white/20 ${focusCard && 'bg-white/20'}`,
+                        ? `group-hover:bg-black/40`
+                        : `group-hover:bg-white/20`,
                 )}
                     onClick={() => {
                         if (getType(result) === "artists") setOpenArtistDialog(true);
@@ -91,16 +97,12 @@ const ReleaseCard = ({ result, resolvedTheme, ref, showArtistDialog }: { result:
                                 </div>}
                         </div>
                         {!(getType(result) === "artists") && <div className="flex items-center justify-between gap-4 p-2">
-                            {(result as QobuzTrack).album ? <Button
-                                size='icon'
+                            <DownloadButton
                                 variant='ghost'
-                                onClick={async () => {
-                                    await createDownloadJob(result as QobuzTrack, setStatusBar, ffmpegState, settings, toast as any, fetchedAlbumData, setFetchedAlbumData);
-                                }}
-                            >
-                                <DownloadIcon />
-                            </Button> : <DownloadAlbumButton variant='ghost' size='icon' result={result as QobuzAlbum} toast={toast} setStatusBar={setStatusBar} ffmpegState={ffmpegState} settings={settings} fetchedAlbumData={fetchedAlbumData} setFetchedAlbumData={setFetchedAlbumData} onOpen={() => setFocusCard(true)} onClose={() => setFocusCard(false)} />}
-                            {(result as QobuzTrack).album ? null :
+                                size='icon'
+                                result={result as QobuzAlbum | QobuzTrack}
+                            />
+                            {(getType(result) === "albums") &&
                                 <Button size='icon' variant='ghost' onClick={async () => {
                                     setOpenTracklist(!openTracklist);
                                     await getFullAlbumInfo(fetchedAlbumData, setFetchedAlbumData, result as QobuzAlbum);
@@ -118,11 +120,10 @@ const ReleaseCard = ({ result, resolvedTheme, ref, showArtistDialog }: { result:
                     className={cn('absolute left-0 top-0 z-[2] w-full aspect-square transition-all')}
                 >
                     {(album || result).image?.small ? <>
-                        {getType(result) === "artists" ? <Image fill src={(album || result).image?.small} alt={formatTitle(result)} className={cn("object-cover group-hover:scale-105 transition-all w-full h-full text-[0px]", focusCard && "scale-105", imageLoaded && "opacity-100")}
+                        {getType(result) === "artists" ? <Image fill src={(album || result).image?.small} alt={formatTitle(result)} className={cn("object-cover group-hover:scale-105 transition-all w-full h-full text-[0px]", imageLoaded && "opacity-100")}
                             sizes="(min-width: 1280px) calc((100vw - 96px) / 7), (min-width: 1024px) calc((100vw - 80px) / 6), (min-width: 768px) calc((100vw - 64px) / 5), (min-width: 640px) calc((100vw - 48px) / 3), calc((100vw - 32px) / 2)"
                             onLoad={() => { setImageLoaded(true) }}
-                        /> : <img crossOrigin="anonymous" src={(album || result).image?.small} alt={formatTitle(result)} className={cn("object-cover group-hover:scale-105 transition-all w-full h-full text-[0px]", focusCard && "scale-105", imageLoaded && "opacity-100")}
-                            sizes="(min-width: 1280px) calc((100vw - 96px) / 7), (min-width: 1024px) calc((100vw - 80px) / 6), (min-width: 768px) calc((100vw - 64px) / 5), (min-width: 640px) calc((100vw - 48px) / 3), calc((100vw - 32px) / 2)"
+                        /> : <img crossOrigin="anonymous" src={(album || result).image?.small} alt={formatTitle(result)} className={cn("object-cover group-hover:scale-105 transition-all w-full h-full text-[0px]", imageLoaded && "opacity-100")}
                             onLoad={() => { setImageLoaded(true) }}
                         />}
                     </> :
@@ -131,6 +132,7 @@ const ReleaseCard = ({ result, resolvedTheme, ref, showArtistDialog }: { result:
                                 if (filter.value === getType(result)) {
                                     return <filter.icon key={index} className='w-1/2 h-1/2 opacity-20' />
                                 }
+                                return null;
                             })}
                         </motion.div>}
                 </motion.div>
@@ -169,9 +171,7 @@ const ReleaseCard = ({ result, resolvedTheme, ref, showArtistDialog }: { result:
                                         {album.tracks_count} {album.tracks_count > 1 ? "tracks" : "track"} - {formatDuration(album.duration)}
                                     </DialogDescription>}
                                 </div>
-                                <DownloadAlbumButton result={result as QobuzAlbum} toast={toast} setStatusBar={setStatusBar} ffmpegState={ffmpegState} settings={settings} fetchedAlbumData={fetchedAlbumData} setFetchedAlbumData={setFetchedAlbumData} variant="ghost" size="icon" onClick={() => {
-                                    setOpenTracklist(false);
-                                }} />
+                                <DownloadButton result={result as QobuzAlbum} variant="ghost" size="icon" onDownloadQueued={() => setOpenTracklist(false)} />
                             </div>
                         </div>
                     </div>
@@ -197,10 +197,7 @@ const ReleaseCard = ({ result, resolvedTheme, ref, showArtistDialog }: { result:
                                                     className='md:group-hover:flex md:hidden justify-center aspect-square h-6 w-6 [&_svg]:size-5 hover:bg-transparent'
                                                     size="icon"
                                                     variant='ghost'
-                                                    onClick={async () => {
-                                                        await createDownloadJob(track, setStatusBar, ffmpegState, settings, toast as any);
-                                                        toast({ title: `Added '${formatTitle(track)}' to the queue`, description: "Track has been added to the queue" })
-                                                    }}
+                                                    onClick={() => queueServerDownload(track)}
                                                 >
                                                     <DownloadIcon className='!size-4' />
                                                 </Button>}
@@ -215,9 +212,11 @@ const ReleaseCard = ({ result, resolvedTheme, ref, showArtistDialog }: { result:
                     </ScrollArea>}
                 </DialogContent>
             </Dialog>
-            {((getType(result) !== "artists") && showArtistDialog) && <ArtistDialog open={openArtistDialog} setOpen={setOpenArtistDialog} artist={(result as QobuzAlbum).artist ?? (result as QobuzTrack).performer} />}
+            {((getType(result) !== "artists") && showArtistDialog) && <ArtistDialog open={openArtistDialog} setOpen={setOpenArtistDialog} artist={artist} />}
         </div>
     )
-}
+});
+
+ReleaseCard.displayName = "ReleaseCard";
 
 export default ReleaseCard

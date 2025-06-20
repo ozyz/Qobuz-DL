@@ -1,71 +1,51 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Button, ButtonProps } from './ui/button'
-import { DownloadIcon, FileArchiveIcon, MusicIcon } from 'lucide-react'
-import { StatusBarProps } from './status-bar/status-bar'
-import { FFmpegType } from '@/lib/ffmpeg-functions'
-import { SettingsProps } from '@/lib/settings-provider'
-import { FetchedQobuzAlbum, formatTitle, getFullAlbumInfo, QobuzAlbum } from '@/lib/qobuz-dl'
-import { createDownloadJob } from '@/lib/download-job'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu'
+import { DownloadIcon } from 'lucide-react'
+import { QobuzAlbum, QobuzTrack } from '@/lib/qobuz-dl'
+import { useSimpleToast } from '@/hooks/use-simple-toast'
+import axios from 'axios'
 
 export interface DownloadAlbumButtonProps extends ButtonProps {
-    result: QobuzAlbum,
-    setStatusBar: React.Dispatch<React.SetStateAction<StatusBarProps>>,
-    ffmpegState: FFmpegType,
-    settings: SettingsProps,
-    fetchedAlbumData: FetchedQobuzAlbum | null,
-    setFetchedAlbumData: React.Dispatch<React.SetStateAction<FetchedQobuzAlbum | null>>,
-    onOpen?: () => void,
-    onClose?: () => void,
-    toast: (toast: any) => void,
+    result: QobuzAlbum | QobuzTrack;
+    onDownloadQueued?: () => void;
+}
+
+async function queueServerDownload(item: QobuzAlbum | QobuzTrack, toast: (props: any) => void) {
+    try {
+        const { data } = await axios.post('/api/server-download', { item });
+        toast({ title: data.message });
+    } catch (error: any) {
+        toast({
+            title: "Error queueing download",
+            description: error?.response?.data?.message || error.message,
+            variant: "destructive"
+        });
+    }
 }
 
 const DownloadButton = React.forwardRef<HTMLButtonElement, DownloadAlbumButtonProps>(
-    ({ className, variant, size, asChild = false, onOpen, onClose, result, setStatusBar, ffmpegState, settings, toast, fetchedAlbumData, setFetchedAlbumData, ...props }, ref) => {
-        const [open, setOpen] = useState(false);
-        useEffect(() => {
-            if (open) onOpen?.()
-            else onClose?.()
-        })
+    ({ className, variant, size, asChild = false, result, onDownloadQueued, ...props }, ref) => {
+        const { toast } = useSimpleToast();
+
+        const handleDownload = () => {
+            queueServerDownload(result, toast);
+            if (onDownloadQueued) {
+                onDownloadQueued();
+            }
+        };
+
         return (
-            <>
-                <DropdownMenu open={open} onOpenChange={setOpen}>
-                    <DropdownMenuTrigger asChild>
-                        <Button
-                            className={className}
-                            ref={ref}
-                            variant={variant}
-                            size={size}
-                            asChild={asChild}
-                            {...props}
-                        >
-                            <DownloadIcon className='!size-4' />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => {
-                            createDownloadJob(result, setStatusBar, ffmpegState, settings, toast, fetchedAlbumData, setFetchedAlbumData)
-                            toast({ title: `Added '${formatTitle(result)}'`, description: "The album has been added to the queue" })
-                        }} className='flex items-center gap-2'>
-                            <FileArchiveIcon className='!size-4' />
-                            <p>ZIP Archive</p>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={async () => {
-                            const albumData = await getFullAlbumInfo(fetchedAlbumData, setFetchedAlbumData, result);
-                            for (const track of albumData.tracks.items) {
-                                if (track.streamable) {
-                                    await createDownloadJob({ ...track, album: albumData }, setStatusBar, ffmpegState, settings, toast, albumData, setFetchedAlbumData);
-                                    await new Promise(resolve => setTimeout(resolve, 100));
-                                }
-                            }
-                            toast({ title: `Added '${formatTitle(result)}'`, description: "The album has been added to the queue" })
-                        }} className='flex items-center gap-2'>
-                            <MusicIcon className='!size-4' />
-                            <p>No ZIP Archive</p>
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </>
+            <Button
+                className={className}
+                ref={ref}
+                variant={variant}
+                size={size}
+                asChild={asChild}
+                onClick={handleDownload}
+                {...props}
+            >
+                <DownloadIcon className='!size-4' />
+            </Button>
         )
     }
 )

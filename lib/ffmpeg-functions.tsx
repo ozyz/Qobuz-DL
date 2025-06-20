@@ -1,169 +1,91 @@
-import { formatArtists, formatTitle, getAlbum, getFullResImage, QobuzTrack } from "./qobuz-dl";
-import axios from "axios";
-import { SettingsProps } from "./settings-provider";
-import { StatusBarProps } from "@/components/status-bar/status-bar";
+import { formatArtists, formatTitle, getAlbum, QobuzTrack, getBestFormatId } from "./qobuz-dl";
+import { runFFmpeg } from "./server/ffmpeg";
+import { cleanFileName } from "./utils";
+import fs from 'fs/promises';
+import path from 'path';
+import os from 'os';
+import axios from 'axios';
 
-declare const FFmpeg: { createFFmpeg: any, fetchFile: any };
+export async function processAndSaveTrack(track: QobuzTrack, albumData: any) {
+    // Import the function directly for server-side use, avoiding an unnecessary API loop.
+    const { getDownloadURL } = await import('@/lib/qobuz-dl');
+    
+    // Determine the best format ID to request based on the track's actual metadata
+    const formatId = getBestFormatId(track);
+    console.log(`Requesting format_id '${formatId}' for track '${track.title}'`);
 
-export type FFmpegType = {
-    FS: (action: string, filename: string, fileData?: Uint8Array) => Promise<any>;
-    run: (...args: string[]) => Promise<any>;
-    isLoaded: () => boolean;
-    load: ({ signal }: { signal: AbortSignal }) => Promise<any>;
-}
+    const downloadUrl = await getDownloadURL(track.id, formatId);
 
-export const codecMap = {
-    FLAC: {
-        extension: "flac",
-        codec: "flac"
-    },
-    WAV: {
-        extension: "wav",
-        codec: "pcm_s16le"
-    },
-    ALAC: {
-        extension: "m4a",
-        codec: "alac"
-    },
-    MP3: {
-        extension: "mp3",
-        codec: "libmp3lame"
-    },
-    AAC: {
-        extension: "m4a",
-        codec: "aac"
-    },
-    OPUS: {
-        extension: "opus",
-        codec: "libopus"
+    if (!downloadUrl) {
+        console.error(`Could not get download URL for track ID ${track.id}`);
+        return;
     }
-}
 
-export async function applyMetadata(trackBuffer: ArrayBuffer, resultData: QobuzTrack, ffmpeg: FFmpegType, settings: SettingsProps, setStatusBar?: React.Dispatch<React.SetStateAction<StatusBarProps>>, albumArt?: ArrayBuffer | false, upc?: string) {
-    const skipRencode = (settings.outputQuality != "5" && settings.outputCodec === "FLAC") || (settings.outputQuality === "5" && settings.outputCodec === "MP3" && settings.bitrate === 320);
-    if (skipRencode && !settings.applyMetadata) return trackBuffer;
-    const extension = codecMap[settings.outputCodec].extension;
-    if (!skipRencode) {
-        const inputExtension = settings.outputQuality === "5" ? "mp3" : "flac";
-        if (setStatusBar) setStatusBar(prev => {
-            if (prev.processing) {
-                return { ...prev, description: "Re-encoding track..." }
-            } else return prev;
-        })
-        await ffmpeg.FS("writeFile", "input." + inputExtension, new Uint8Array(trackBuffer));
-        await ffmpeg.run("-i", "input." + inputExtension, "-c:a", codecMap[settings.outputCodec].codec, settings.bitrate ? "-b:a" : "", settings.bitrate ? settings.bitrate + "k" : "", ["OPUS"].includes(settings.outputCodec) ? "-vbr" : "", ["OPUS"].includes(settings.outputCodec) ? "on" : "", "output." + extension);
-        trackBuffer = await ffmpeg.FS("readFile", "output." + extension);
-        await ffmpeg.FS("unlink", "input." + inputExtension);
-        await ffmpeg.FS("unlink", "output." + extension);
-    }
-    if (!settings.applyMetadata) return trackBuffer;
-    if (settings.outputCodec === "WAV") return trackBuffer;
-    if (setStatusBar) setStatusBar(prev => ({ ...prev, description: "Applying metadata..." }))
-    const artists = resultData.album.artists === undefined ? [resultData.performer] : resultData.album.artists;
-    let metadata = `;FFMETADATA1`
-    metadata += `\ntitle=${formatTitle(resultData)}`;
-    if (artists.length > 0) {
-        metadata += `\nartist=${formatArtists(resultData)}`;
-        metadata += `\nalbum_artist=${formatArtists(resultData)}`
-    } else {
-        metadata += `\nartist=Various Artists`;
-        metadata += `\nalbum_artist=Various Artists`;
-    }
-    metadata += `\nalbum_artist=${artists[0]?.name || resultData.performer?.name || "Various Artists"}`
-    metadata += `\nalbum=${formatTitle(resultData.album)}`
-    metadata += `\ngenre=${resultData.album.genre.name}`
-    metadata += `\ndate=${resultData.album.release_date_original}`
-    metadata += `\nyear=${new Date(resultData.album.release_date_original).getFullYear()}`
-    metadata += `\nlabel=${getAlbum(resultData).label.name}`
-    metadata += `\ncopyright=${resultData.copyright}`
-    if (resultData.isrc) metadata += `\nisrc=${resultData.isrc}`;
-    if (upc) metadata += `\nbarcode=${upc}`;
-    if (resultData.track_number) metadata += `\ntrack=${resultData.track_number}`;
-    await ffmpeg.FS("writeFile", "input." + extension, new Uint8Array(trackBuffer));
-    const encoder = new TextEncoder();
-    await ffmpeg.FS("writeFile", "metadata.txt", encoder.encode(metadata));
-    if (!(albumArt === false)) {
-        if (!albumArt) {
-            const albumArtURL = await getFullResImage(resultData);
-            if (albumArtURL) {
-                albumArt = (await axios.get(await getFullResImage(resultData) as string, { responseType: 'arraybuffer' })).data;
-            } else albumArt = false
+    const trackBufferResponse = await axios.get(downloadUrl, { responseType: 'arraybuffer' });
+    const trackBuffer = Buffer.from(trackBufferResponse.data);
+
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qobuzdl-'));
+
+    try {
+        // Always use .flac extension for the temp file. FFmpeg will auto-detect the true format.
+        // This avoids issues with mislabeling CD-quality FLAC as MP3.
+        const inputPath = path.join(tempDir, `input.flac`);
+        await fs.writeFile(inputPath, trackBuffer);
+
+        let albumArtPath: string | undefined = undefined;
+        if (albumData.image?.large) {
+            const albumArtUrl = albumData.image.large.replace(/_\d+\.jpg$/, '_org.jpg');
+            try {
+                const albumArtBuffer = (await axios.get(albumArtUrl, { responseType: 'arraybuffer' })).data;
+                albumArtPath = path.join(tempDir, 'cover.jpg');
+                await fs.writeFile(albumArtPath, albumArtBuffer);
+            } catch (err) {
+                console.warn(`Could not fetch album art from ${albumArtUrl}`);
+            }
         }
-        if (albumArt) await ffmpeg.FS("writeFile", "albumArt.jpg", new Uint8Array(albumArt ? albumArt : (await axios.get(await getFullResImage(resultData) as string, { responseType: 'arraybuffer' })).data))
-    };
 
-    await ffmpeg.run(
-        "-i", "input." + extension,
-        "-i", "metadata.txt",
-        "-map_metadata", "1",
-        "-codec", "copy",
-        "secondInput." + extension
-    );
-    if (["WAV", "OPUS"].includes(settings.outputCodec) || (albumArt === false)) {
-        const output = await ffmpeg.FS("readFile", "secondInput." + extension);
-        ffmpeg.FS("unlink", "input." + extension);
-        ffmpeg.FS("unlink", "metadata.txt");
-        ffmpeg.FS("unlink", "secondInput." + extension);
-        return output;
-    };
-    await ffmpeg.run(
-        '-i', 'secondInput.' + extension,
-        '-i', 'albumArt.jpg',
-        '-c', 'copy',
-        '-map', '0',
-        '-map', '1',
-        '-disposition:v:0', 'attached_pic',
-        'output.' + extension
-    );
-    const output = await ffmpeg.FS("readFile", "output." + extension);
-    ffmpeg.FS("unlink", "input." + extension);
-    ffmpeg.FS("unlink", "metadata.txt");
-    ffmpeg.FS("unlink", "secondInput." + extension);
-    ffmpeg.FS("unlink", "albumArt.jpg");
-    return output;
-}
+        const albumArtist = formatArtists(albumData, '; ');
+        const albumTitle = formatTitle(albumData);
+        const albumDir = cleanFileName(`${albumArtist} - ${albumTitle} [${new Date(albumData.release_date_original).getFullYear()}]`);
+        const finalDir = path.join(process.env.DOWNLOAD_PATH || './downloads', albumDir);
+        await fs.mkdir(finalDir, { recursive: true });
 
-export async function fixMD5Hash(trackBuffer: ArrayBuffer, setStatusBar?: React.Dispatch<React.SetStateAction<StatusBarProps>>): Promise<Blob> {
-    return new Promise((resolve) => {
-        setStatusBar?.(prev => ({ ...prev, description: "Fixing MD5 hash...", progress: 0 }))
-        const worker = new Worker('flac/EmsWorkerProxy.js');
-        worker.onmessage = function (e) {
-            if (e.data && e.data.reply === 'progress') {
-                const vals = e.data.values;
-                if (vals[1]) {
-                    setStatusBar?.(prev => ({...prev, progress: Math.floor(vals[0] / vals[1] * 100)}))
-                }
-            } else if (e.data && e.data.reply === 'done') {
-                for (const fileName in e.data.values) {
-                    resolve(e.data.values[fileName].blob);
-                }
-            }
+        // Check if cover art already exists before copying
+        const finalAlbumArtPath = path.join(finalDir, 'cover.jpg');
+        const coverExists = await fs.access(finalAlbumArtPath).then(() => true).catch(() => false);
+        if (albumArtPath && !coverExists) {
+            await fs.copyFile(albumArtPath, finalAlbumArtPath);
+        }
+
+        const trackNumber = String(track.track_number).padStart(2, '0');
+        const trackTitle = formatTitle(track);
+        const trackFilename = cleanFileName(`${trackNumber}. ${trackTitle}.flac`);
+        const outputPath = path.join(finalDir, trackFilename);
+
+        const rawMetadata = {
+            title: trackTitle,
+            artist: formatArtists(track, '; '),
+            album_artist: albumArtist,
+            album: albumTitle,
+            genre: albumData.genre.name,
+            date: albumData.release_date_original,
+            track: `${track.track_number}/${albumData.tracks.items.length}`,
+            disc: `${track.media_number}/${albumData.media_count || 1}`,
+            copyright: track.copyright,
+            isrc: track.isrc,
+            label: getAlbum(track).label.name,
+            upc: albumData.upc
         };
-        worker.postMessage({
-            command: 'encode',
-            args: ["input.flac", "-o", "output.flac"],
-            outData: {
-                "output.flac": {
-                    MIME: "audio/flac",
-                },
-            },
-            fileData: {
-                "input.flac": new Uint8Array(trackBuffer)
-            }
-        });
-    })
-}
 
-export function createFFmpeg() {
-    if (typeof FFmpeg === 'undefined') return null;
-    const { createFFmpeg } = FFmpeg;
-    const ffmpeg = createFFmpeg({ log: false });
-    return ffmpeg;
-}
+        // Filter out null/undefined values to satisfy the FfmpegMetadata type
+        const metadata = Object.fromEntries(
+            Object.entries(rawMetadata).filter(([_, v]) => v != null)
+        );
 
-export async function loadFFmpeg(ffmpeg: FFmpegType, signal: AbortSignal) {
-    if (!ffmpeg.isLoaded()) {
-        await ffmpeg.load({ signal });
-        return ffmpeg;
+        await runFFmpeg(inputPath, outputPath, metadata, albumArtPath);
+        console.log(`Successfully downloaded and saved: ${outputPath}`);
+
+    } finally {
+        await fs.rm(tempDir, { recursive: true, force: true });
     }
 }

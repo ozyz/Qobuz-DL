@@ -1,6 +1,6 @@
 "use client"
-import React, { useState } from 'react'
-import { ChevronUp, ChevronDown, List as QueueIcon, LucideIcon, X, DotIcon } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+import { ChevronUp, ChevronDown, List as QueueIcon, DotIcon } from 'lucide-react'
 import { motion } from "motion/react"
 import { AnimatePresence } from 'motion/react'
 import { Button } from '../ui/button'
@@ -8,12 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui
 import { Progress } from '../ui/progress'
 import QueueDialog from './queue-dialog'
 import { useStatusBar } from '@/lib/status-bar/context'
+import { Job } from '@/lib/server/queue'
+import axios from 'axios'
+import { formatTitle } from '@/lib/qobuz-dl'
+
 
 export type QueueProps = {
     title: string,
-    icon?: LucideIcon | null,
     UUID: string,
-    remove?: () => void
 }
 
 export type StatusBarProps = {
@@ -21,20 +23,66 @@ export type StatusBarProps = {
     openPreference: boolean,
     title: string,
     description: string,
-    progress: number,
     processing: boolean
-    queue?: QueueProps[],
-    onCancel?: () => void,
+    queue?: Job[],
+    currentJob?: Job | null
 }
 
 const StatusBar = () => {
     const { statusBar, setStatusBar } = useStatusBar();
     const [queueOpen, setQueueOpen] = useState<boolean>(false);
 
+    // Poll for queue status from the server
+    useEffect(() => {
+        const fetchStatus = async () => {
+            try {
+                const { data } = await axios.get('/api/queue-status');
+                const { currentJob, pendingJobs } = data;
+
+                setStatusBar(prev => {
+                    let newTitle = "Ready";
+                    let newDescription = "";
+                    let processing = false;
+
+                    if (currentJob) {
+                        processing = true;
+                        newTitle = `Downloading: ${formatTitle(currentJob.item)}`;
+                        newDescription = `(${pendingJobs.length} items in queue)`;
+                    } else if (pendingJobs.length > 0) {
+                        newTitle = `${pendingJobs.length} items queued`;
+                    } else {
+                        newTitle = "Queue is empty";
+                    }
+
+                    const shouldOpen = processing && prev.openPreference;
+
+                    return {
+                        ...prev,
+                        open: shouldOpen,
+                        title: newTitle,
+                        description: newDescription,
+                        processing: processing,
+                        queue: pendingJobs,
+                        currentJob: currentJob
+                    };
+                });
+            } catch (error) {
+                console.error("Failed to fetch queue status:", error);
+            }
+        };
+
+        const intervalId = setInterval(fetchStatus, 2000); // Poll every 2 seconds
+        fetchStatus();
+
+        return () => clearInterval(intervalId);
+    }, [setStatusBar]);
+
+    const hasContent = statusBar.processing || (statusBar.queue && statusBar.queue.length > 0);
+
     return (
         <>
             <AnimatePresence>
-                {statusBar.open &&
+                {statusBar.open && hasContent &&
                     (
                         <motion.div
                             key="progress"
@@ -43,7 +91,7 @@ const StatusBar = () => {
                             animate={{ y: 0, opacity: 1 }}
                             transition={{ type: "spring" }}
                             exit={{ y: 100, opacity: 0 }}
-                       > 
+                        >
                             <Card>
                                 <CardHeader className='flex items-center flex-row justify-between transition-[height] pt-4 overflow-hidden pb-2'>
                                     <Button
@@ -51,7 +99,7 @@ const StatusBar = () => {
                                         size="icon"
                                         onClick={() => setQueueOpen(true)}
                                         className="size-6"
-                                        disabled={statusBar.queue ? statusBar.queue.length === 0 : true}
+                                        disabled={!statusBar.queue || statusBar.queue.length === 0}
                                     >
                                         <QueueIcon className='w-4 h-4' />
                                     </Button>
@@ -78,23 +126,14 @@ const StatusBar = () => {
                                     </Button>
                                 </CardHeader>
                                 <CardContent className='flex items-center justify-center gap-2'>
-                                    <Progress value={statusBar.progress} />
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="size-6 pointer-events-auto"
-                                        disabled={!statusBar.processing}
-                                        onClick={statusBar.onCancel}
-                                    >
-                                        <X className="w- h-4" />
-                                    </Button>
+                                    <Progress value={statusBar.processing ? undefined : 0} />
                                 </CardContent>
                             </Card>
                         </motion.div>
                     )
                 }
             </AnimatePresence>
-            {!statusBar.open && (
+            {!statusBar.open && hasContent && (
                 <motion.div
                     key="open"
                     className="w-full z-[20] flex items-end justify-center absolute bottom-0 h-full"
@@ -114,9 +153,9 @@ const StatusBar = () => {
                                 animate={{ opacity: 1, y: 0, maxHeight: 20 }}
                                 exit={{ opacity: 0, y: 10, maxHeight: 0 }}
                                 className="flex items-center justify-center text-center">
-                                <p>{statusBar.description}</p>
+                                <p>{statusBar.title}</p>
                                 <DotIcon className='min-w-[20px] min-h-[20px] size-[20px]' />
-                                <p>{Math.round(statusBar.progress)}%</p>
+                                <p>{statusBar.queue?.length} left</p>
                             </motion.div>}
                         </AnimatePresence>
                     </Button>
@@ -127,6 +166,7 @@ const StatusBar = () => {
                 open={queueOpen}
                 setOpen={setQueueOpen}
                 queueItems={statusBar.queue || []}
+                currentJob={statusBar.currentJob || null}
             />
         </>
     )

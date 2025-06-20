@@ -10,9 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
 import { Disc3Icon, DiscAlbumIcon, UsersIcon } from 'lucide-react';
-import { FilterDataType, filterExplicit, QobuzAlbum, QobuzArtist, QobuzSearchFilters, QobuzSearchResults, QobuzTrack } from '@/lib/qobuz-dl';
+import { FilterDataType, QobuzAlbum, QobuzArtist, QobuzSearchFilters, QobuzSearchResults, QobuzTrack } from '@/lib/qobuz-dl';
 import { getTailwindBreakpoint } from '@/lib/utils';
-import { useSettings } from '@/lib/settings-provider';
 import { motion, useAnimation } from 'motion/react';
 
 export const filterData: FilterDataType = [
@@ -41,7 +40,6 @@ const SearchView = () => {
     const [loading, setLoading] = useState<boolean>(false);
     const [searching, setSearching] = useState<boolean>(false);
     const [searchError, setSearchError] = useState<string>('');
-    const { settings } = useSettings();
 
     const FilterIcon = filterData.find((fd) => fd.value == searchField)?.icon || Disc3Icon;
 
@@ -60,7 +58,8 @@ const SearchView = () => {
                         const newResults = { ...results!, [searchField]: { ...results![searchField], items: [...results![searchField].items, ...response.data.data[searchField].items] } }
                         setLoading(false);
                         if (query === response.data.data.query) setResults(newResults);
-                }})
+                    }
+                })
         } else {
             axios.get(`/api/get-music?q=${query}&offset=${results![searchField].items.length}`)
                 .then((response) => {
@@ -81,6 +80,9 @@ const SearchView = () => {
     useEffect(() => {
         if (searching) return;
         if (isInView && results![searchField].total > results![searchField].items.length && !loading) fetchMore();
+        if (results?.switchTo) {
+            setSearchField(results.switchTo);
+        }
     }, [isInView, results]);
 
     const cardRef = useRef<HTMLDivElement | null>(null);
@@ -106,7 +108,7 @@ const SearchView = () => {
         return () => {
             resizeObserver.disconnect();
         };
-    }, [results, settings.explicitContent, searchField]);
+    }, [results, searchField]);
 
     useLayoutEffect(() => {
         const handleResize = () => {
@@ -135,14 +137,33 @@ const SearchView = () => {
 
     const [numRows, setNumRows] = useState(0);
 
+
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    const [logoSrc, setLogoSrc] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (logoSrc) URL.revokeObjectURL(logoSrc);
+        if (mounted) {
+            (async () => {
+                const logoSrc = await axios.get(resolvedTheme === "light" ? "/logo/qobuz-web-light.png" : "/logo/qobuz-web-dark.png", { responseType: "blob" })
+                setLogoSrc(URL.createObjectURL(logoSrc.data));
+            })();
+        }
+    }, [mounted, resolvedTheme]);
+
     const logoAnimationControls = useAnimation();
     useEffect(() => {
-        logoAnimationControls.start({
-          opacity: 1,
-          y: 0,
-          transition: { duration: 0.5, type: "spring" },
-        });
-      }, [logoAnimationControls]);
+        if (mounted && logoSrc) setTimeout(() => logoAnimationControls.start({
+            opacity: 1,
+            y: 0,
+            transition: { duration: 0.5, type: "spring" },
+        }), 100);
+    }, [logoAnimationControls, mounted, logoSrc]);
 
     return (
         <>
@@ -153,7 +174,7 @@ const SearchView = () => {
                         logoAnimationControls.start({
                             scale: [1, 1.1, 1],
                             transition: { duration: 0.4, ease: "easeInOut" },
-                          });
+                        });
                         setQuery('');
                         setResults(null);
                         setSearchField('albums');
@@ -162,8 +183,9 @@ const SearchView = () => {
                     animate={logoAnimationControls}
                     transition={{ duration: 0.5 }}
                 >
-                    {process.env.NEXT_PUBLIC_APPLICATION_NAME!.toLowerCase() === "qobuz-dl" ? (
-                        <img src={resolvedTheme === "light" ? '/logo/qobuz-web-light.png' : '/logo/qobuz-web-dark.png'} alt={process.env.NEXT_PUBLIC_APPLICATION_NAME!} className='w-auto h-[100px] mx-auto' />
+                    {process.env.NEXT_PUBLIC_APPLICATION_NAME!.toLowerCase() === "qobuz-dl" ? (<>
+                        {mounted && logoSrc ? <img src={logoSrc} alt={process.env.NEXT_PUBLIC_APPLICATION_NAME!} className='w-auto h-[100px] mx-auto z-[5]' /> : <div className='min-h-[100px] min-w-[10px]' />}
+                    </>
                     ) : (
                         <>
                             <h1 className="text-4xl font-bold text-center">{process.env.NEXT_PUBLIC_APPLICATION_NAME}</h1>
@@ -183,7 +205,7 @@ const SearchView = () => {
                                     setLoading(false);
                                     if (searchField !== searchFieldInput) setSearchField(searchFieldInput as QobuzSearchFilters);
 
-                                    let newResults = {...response.data.data };
+                                    let newResults = { ...response.data.data };
                                     filterData.map((filter) => {
                                         if (!newResults[filter.value]) newResults = { ...newResults, [filter.value]: { total: undefined, offset: undefined, limit: undefined, items: [] } }
                                     })
@@ -227,9 +249,9 @@ const SearchView = () => {
                 {results && <div className="my-6 w-screen mx-auto max-w-[1600px] pb-20">
                     <div
                         className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4 w-full px-6 overflow-visible"
-                        style={{ maxHeight: `${(Math.ceil(filterExplicit(results, settings.explicitContent)[searchField].items.length / numRows) + 2) * (cardHeight + 16)}px` }}
+                        style={{ maxHeight: `${(Math.ceil(results[searchField].items.length / numRows) + 2) * (cardHeight + 16)}px` }}
                     >
-                        {filterExplicit(results, settings.explicitContent)[searchField].items.map((result: QobuzAlbum | QobuzTrack | QobuzArtist, index: number) => {
+                        {results[searchField].items.map((result: QobuzAlbum | QobuzTrack | QobuzArtist, index: number) => {
                             if (!result) return null;
                             return (
                                 <ReleaseCard

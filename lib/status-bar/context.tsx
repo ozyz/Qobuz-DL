@@ -9,13 +9,13 @@ const StatusBarContext = createContext<{
 
 export const StatusBarProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [statusBar, setStatusBar] = useState<StatusBarProps>({
-        title: "",
+        title: "Ready",
         open: false,
         openPreference: true,
-        progress: 0,
         description: "",
         processing: false,
-        onCancel: () => {}
+        queue: [],
+        currentJob: null,
     });
 
     return (
@@ -31,6 +31,6 @@ export const useStatusBar = () => {
     if (!context) {
         throw new Error('useStatusBar must be used within a StatusBarProvider');
     }
-    
+
     return context;
 };
