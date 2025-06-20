@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  qobuz-dl:
+    # Use the image built from the Dockerfile in the current directory
+    build: .
+    # Name the container for easy reference
+    container_name: qobuz-dl
+    # Restart the container automatically if it stops, unless manually stopped
+    restart: unless-stopped
+    # Expose port 3000 on the host, mapping it to port 3000 in the container
+    ports:
+      - "3000:3000"
+    # Load environment variables from the .env file in the current directory
+    env_file:
+      - .env
+    # Define volumes for persistent storage
+    volumes:
+      # Mount a local directory for downloads to the container's download path.
+      # This ensures your music is saved on your host machine and persists even if the container is removed.
+      # Before running, create a 'music' directory next to this docker-compose.yml file,
+      # or change './music' to your preferred path on the host machine.
+      - ./music:/app/downloads
+
+# Define a top-level network for better isolation (optional but good practice)
+networks:
+  default:
+    name: qobuz-dl_network

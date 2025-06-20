@@ -1,0 +1,23 @@
+# Git files
+.git
+.gitignore
+
+# Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Dependencies
+node_modules
+
+# Build artifacts and local environment
+.next
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.env.local
+
+# Local directories (if any)
+downloads
+music

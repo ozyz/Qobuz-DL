@@ -1,5 +1,6 @@
 import axios from "axios";
 import { LucideIcon } from "lucide-react";
+import { getValidToken, invalidateToken } from "./server/token-manager";
 
 let crypto: any;
 let SocksProxyAgent: any;
@@ -8,6 +9,7 @@ if (typeof window === "undefined") {
     SocksProxyAgent = require('socks-proxy-agent')['SocksProxyAgent'];
 }
 
+// ... (All type definitions remain the same) ...
 export type QobuzGenre = {
     path: number[],
     color: string,
@@ -176,11 +178,7 @@ export const QOBUZ_ALBUM_URL_REGEX = /https:\/\/(play|open)\.qobuz\.com\/album\/
 export const QOBUZ_TRACK_URL_REGEX = /https:\/\/(play|open)\.qobuz\.com\/track\/\d+/;
 export const QOBUZ_ARTIST_URL_REGEX = /https:\/\/(play|open)\.qobuz\.com\/artist\/\d+/;
 
-/**
- * Determines the best Qobuz format ID based on the track's metadata.
- * @param track The Qobuz track object.
- * @returns The format ID string for the highest available quality.
- */
+// ... (keep getBestFormatId, getAlbum, formatTitle, etc. as they are) ...
 export function getBestFormatId(track: QobuzTrack | QobuzAlbum): string {
     const { maximum_bit_depth, maximum_sampling_rate } = track;
 
@@ -193,8 +191,6 @@ export function getBestFormatId(track: QobuzTrack | QobuzAlbum): string {
     if (maximum_bit_depth === 16) {
         return "6"; // 16-bit / 44.1kHz (CD Quality)
     }
-
-    // Fallback for any other case (e.g., MP3 only)
     return "5";
 }
 
@@ -224,17 +220,87 @@ export function formatArtists(input: QobuzAlbum | QobuzTrack, separator: string 
     return "Various Artists";
 }
 
+/**
+ * A simpler request helper that just adds the token.
+ * Error handling and retries are now handled by the specific functions.
+ */
+async function makeQobuzRequest(url: string, params?: Record<string, string>) {
+    testForRequirements();
+    const token = await getValidToken();
 
-export function getRandomToken() {
-    const tokens = JSON.parse(process.env.QOBUZ_AUTH_TOKENS!);
-    if (!tokens || tokens.length === 0) {
-        throw new Error("QOBUZ_AUTH_TOKENS environment variable is empty or not set.");
+    let proxyAgent = undefined;
+    if (process.env.SOCKS5_PROXY) {
+        proxyAgent = new SocksProxyAgent("socks5://" + process.env.SOCKS5_PROXY);
     }
-    return tokens[Math.floor(Math.random() * tokens.length)] as string;
+
+    const response = await axios.get(url, {
+        params,
+        headers: { "x-app-id": process.env.QOBUZ_APP_ID!, "x-user-auth-token": token },
+        httpAgent: proxyAgent,
+        httpsAgent: proxyAgent,
+    });
+    return response.data;
 }
 
+
+export async function getDownloadURL(trackID: number, quality: string): Promise<string> {
+    
+    const fetchUrl = async () => {
+        const timestamp = Math.floor(new Date().getTime() / 1000);
+        const r_sig = `trackgetFileUrlformat_id${quality}intentstreamtrack_id${trackID}${timestamp}${process.env.QOBUZ_SECRET}`;
+        const r_sig_hashed = crypto.createHash('md5').update(r_sig).digest('hex');
+        const url = new URL(process.env.QOBUZ_API_BASE + 'track/getFileUrl');
+        
+        const params = {
+            format_id: quality,
+            intent: "stream",
+            track_id: trackID.toString(),
+            request_ts: timestamp.toString(),
+            request_sig: r_sig_hashed
+        };
+        
+        return makeQobuzRequest(url.toString(), params);
+    };
+
+    try {
+        let downloadData = await fetchUrl();
+
+        // **CRITICAL CHECK**: If we get a 30s preview, the token is unsubscribed.
+        if (downloadData.streaming_duration && downloadData.streaming_duration === 30) {
+            console.warn("Received a 30-second preview URL. The current token is likely unsubscribed. Invalidating and retrying...");
+            invalidateToken(); // Invalidate the bad token
+            downloadData = await fetchUrl(); // Retry the call. This will force `getValidToken` to find a new one.
+
+            // If it's *still* a preview after retrying, then no good tokens are left.
+            if (downloadData.streaming_duration && downloadData.streaming_duration === 30) {
+                throw new Error("Failed to get full track URL. All available tokens seem to be unsubscribed or invalid.");
+            }
+        }
+
+        return downloadData.url;
+
+    } catch (error) {
+        // Handle cases where the token is completely invalid (e.g., 401 error)
+        if (axios.isAxiosError(error) && (error.response?.status === 401 || error.response?.status === 403)) {
+            console.warn("Received an authentication error. The current token is invalid. Invalidating and retrying...");
+            invalidateToken();
+            const downloadData = await fetchUrl(); // Retry once
+
+            if (downloadData.streaming_duration && downloadData.streaming_duration === 30) {
+                throw new Error("Failed to get full track URL on retry. All available tokens seem to be unsubscribed or invalid.");
+            }
+            return downloadData.url;
+        }
+        // Re-throw other errors
+        throw error;
+    }
+}
+
+
+// Functions like search, getAlbumInfo, etc. do not need modification as they don't depend on subscription status.
+// We can use the simpler makeQobuzRequest for them.
+
 export async function search(query: string, limit: number = 10, offset: number = 0) {
-    testForRequirements();
     let id: string | null = null;
     let switchTo: string | null = null;
     if (query.trim().match(QOBUZ_ALBUM_URL_REGEX)) {
@@ -247,101 +313,26 @@ export async function search(query: string, limit: number = 10, offset: number =
         id = query.trim().match(QOBUZ_ARTIST_URL_REGEX)![0].replace("https://open", "").replace("https://play", "").replace(".qobuz.com/artist/", "");
         switchTo = "artists";
     }
-    const url = new URL(process.env.QOBUZ_API_BASE + "catalog/search")
-    url.searchParams.append("query", id || query)
-    url.searchParams.append("limit", limit.toString());
-    url.searchParams.append("offset", offset.toString());
-    let proxyAgent = undefined;
-    if (process.env.SOCKS5_PROXY) {
-        proxyAgent = new SocksProxyAgent("socks5://" + process.env.SOCKS5_PROXY);
-    }
-    const response = await axios.get(url.toString(), {
-        headers: {
-            "x-app-id": process.env.QOBUZ_APP_ID!,
-            "x-user-auth-token": getRandomToken(),
-        },
-        httpAgent: proxyAgent,
-        httpsAgent: proxyAgent
-    });
-    return {
-        ...response.data,
-        switchTo
-    } as QobuzSearchResults;
-}
 
-export async function getDownloadURL(trackID: number, quality: string) {
-    testForRequirements();
-    const timestamp = Math.floor(new Date().getTime() / 1000);
-    const r_sig = `trackgetFileUrlformat_id${quality}intentstreamtrack_id${trackID}${timestamp}${process.env.QOBUZ_SECRET}`;
-    const r_sig_hashed = crypto.createHash('md5').update(r_sig).digest('hex');
-    const url = new URL(process.env.QOBUZ_API_BASE + 'track/getFileUrl');
-    url.searchParams.append("format_id", quality);
-    url.searchParams.append("intent", "stream");
-    url.searchParams.append("track_id", trackID.toString());
-    url.searchParams.append("request_ts", timestamp.toString());
-    url.searchParams.append("request_sig", r_sig_hashed);
-    const headers = new Headers();
-    headers.append('X-App-Id', process.env.QOBUZ_APP_ID!);
-    headers.append("X-User-Auth-Token", getRandomToken());
-    let proxyAgent = undefined;
-    if (process.env.SOCKS5_PROXY) {
-        proxyAgent = new SocksProxyAgent("socks5://" + process.env.SOCKS5_PROXY);
-    }
-    const response = await axios.get(url.toString(), {
-        headers: {
-            "x-app-id": process.env.QOBUZ_APP_ID!,
-            "x-user-auth-token": getRandomToken(),
-        },
-        httpAgent: proxyAgent,
-        httpsAgent: proxyAgent
-    })
-    return response.data.url;
+    const url = new URL(process.env.QOBUZ_API_BASE + "catalog/search");
+    const params = { query: id || query, limit: limit.toString(), offset: offset.toString() };
+    const data = await makeQobuzRequest(url.toString(), params);
+    return { ...data, switchTo } as QobuzSearchResults;
 }
 
 export async function getAlbumInfo(album_id: string) {
-    testForRequirements();
     const url = new URL(process.env.QOBUZ_API_BASE + 'album/get');
-    url.searchParams.append("album_id", album_id);
-    url.searchParams.append("extra", "track_ids");
-    let proxyAgent = undefined;
-    if (process.env.SOCKS5_PROXY) {
-        proxyAgent = new SocksProxyAgent("socks5://" + process.env.SOCKS5_PROXY);
-    }
-    const response = await axios.get(url.toString(), {
-        headers: {
-            "x-app-id": process.env.QOBUZ_APP_ID!,
-            "x-user-auth-token": getRandomToken(),
-        },
-        httpAgent: proxyAgent,
-        httpsAgent: proxyAgent
-    })
-    return response.data;
+    const params = { album_id, extra: "track_ids" };
+    return await makeQobuzRequest(url.toString(), params);
 }
 
 export async function getArtistReleases(artist_id: string, release_type: string = "album", limit: number = 10, offset: number = 0, track_size: number = 1000) {
-    testForRequirements();
     const url = new URL(process.env.QOBUZ_API_BASE + 'artist/getReleasesList');
-    url.searchParams.append("artist_id", artist_id);
-    url.searchParams.append("release_type", release_type);
-    url.searchParams.append("limit", limit.toString());
-    url.searchParams.append("offset", offset.toString());
-    url.searchParams.append("track_size", track_size.toString());
-    url.searchParams.append("sort", "release_date");
-    let proxyAgent = undefined;
-    if (process.env.SOCKS5_PROXY) {
-        proxyAgent = new SocksProxyAgent("socks5://" + process.env.SOCKS5_PROXY);
-    }
-    const response = await axios.get(url.toString(), {
-        headers: {
-            "x-app-id": process.env.QOBUZ_APP_ID!,
-            "x-user-auth-token": getRandomToken(),
-        },
-        httpAgent: proxyAgent,
-        httpsAgent: proxyAgent
-    })
-    return response.data;
+    const params = { artist_id, release_type, limit: limit.toString(), offset: offset.toString(), track_size: track_size.toString(), sort: "release_date" };
+    return await makeQobuzRequest(url.toString(), params);
 }
 
+// ... (keep all remaining functions: formatDuration, testForRequirements, etc.)
 export function formatDuration(seconds: number) {
     if (!seconds) return "0m";
     const totalMinutes = Math.floor(seconds / 60);
@@ -375,21 +366,9 @@ export function getType(input: QobuzAlbum | QobuzTrack | QobuzArtist): QobuzSear
 }
 
 export async function getArtist(artistId: string): Promise<QobuzArtist | null> {
-    testForRequirements();
     const url = new URL(process.env.QOBUZ_API_BASE + "/artist/page");
-    let proxyAgent = undefined;
-    if (process.env.SOCKS5_PROXY) {
-        proxyAgent = new SocksProxyAgent("socks5://" + process.env.SOCKS5_PROXY);
-    }
-    return (await axios.get(url.toString(), {
-        params: { artist_id: artistId, sort: "release_date" },
-        headers: {
-            "x-app-id": process.env.QOBUZ_APP_ID!,
-            "x-user-auth-token": getRandomToken(),
-        },
-        httpAgent: proxyAgent,
-        httpsAgent: proxyAgent
-    })).data;
+    const params = { artist_id: artistId, sort: "release_date" };
+    return await makeQobuzRequest(url.toString(), params);
 }
 
 export function parseArtistAlbumData(album: QobuzAlbum) {
