@@ -13,6 +13,9 @@ import { motion } from 'motion/react'
 import { useSimpleToast } from '@/hooks/use-simple-toast'
 import Image from 'next/image'
 
+// Helper function to create the proxy URL
+const proxyImageUrl = (url: string) => `/api/image-proxy?url=${encodeURIComponent(url)}`;
+
 export type CategoryType = {
     label: string,
     value: "album" | "epSingle" | "live" | "compilation",
@@ -70,14 +73,13 @@ async function downloadArtistDiscography(
     }
 
     for (const releaseType of types) {
-        // Ensure the release type exists on the results object before proceeding
         if (currentResults.artist.releases[releaseType]) {
             while (currentResults.artist.releases[releaseType]?.has_more) {
                 currentResults = await fetchMore(releaseType, currentResults);
             }
             for (const release of currentResults.artist.releases[releaseType].items) {
                 await queueServerDownload(release, toast);
-                await new Promise(resolve => setTimeout(resolve, 100)); // Be nice to the server
+                await new Promise(resolve => setTimeout(resolve, 100)); 
             }
         }
     }
@@ -111,21 +113,36 @@ const ArtistDialog = ({ open, setOpen, artist }: { open: boolean, setOpen: (open
 
     useEffect(() => {
         if (open) getArtistData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open])
+    
+    // Construct the image URL, which might come from one of two places
+    let imageUrl = artist.image?.large;
+    if (!imageUrl && artistResults?.artist.images.portrait) {
+        imageUrl = "https://static.qobuz.com/images/artists/covers/medium/" + artistResults.artist.images.portrait.hash + "." + artistResults.artist.images.portrait.format;
+    }
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogContent className='w-[1000px] max-w-[90%] md:max-w-[80%] overflow-hidden'>
                 <div className="flex gap-3 overflow-hidden">
                     <div className="relative shrink-0 aspect-square min-w-[100px] min-h-[100px] rounded-sm overflow-hidden">
-                        {(artist.image?.small || artistResults?.artist.images.portrait) && <Skeleton className='absolute aspect-square w-full h-full' />}
-                        {(artist.image?.small || artistResults?.artist.images.portrait) ? <Image fill src={artist.image?.small || "https://static.qobuz.com/images/artists/covers/medium/" + artistResults?.artist.images.portrait.hash + "." + artistResults?.artist.images.portrait.format} alt={artist.name} className='text-[0px] absolute aspect-square w-full h-full object-cover' /> : <div className='w-full h-full bg-secondary flex items-center justify-center p-6'><UsersIcon className='w-full h-full opacity-20' /></div>}
+                        {imageUrl ? (
+                             <img 
+                                src={proxyImageUrl(imageUrl)} 
+                                alt={artist.name} 
+                                className='text-[0px] absolute aspect-square w-full h-full object-cover' 
+                             />
+                        ) : (
+                            <div className='w-full h-full bg-secondary flex items-center justify-center p-6'><UsersIcon className='w-full h-full opacity-20'/></div>
+                        )}
+                        <Skeleton className='absolute aspect-square w-full h-full -z-10' />
                     </div>
 
                     <div className="flex w-full flex-col justify-between overflow-hidden">
                         <div className="space-y-1.5 overflow-visible">
                             <DialogTitle title={artist.name} className='truncate overflow-visible py-0.5 pr-2'>{artist.name}</DialogTitle>
-                            {artist.albums_count && <DialogDescription title={artist.albums_count + " " + (artist.albums_count !== 1 ? "releases" : "release")} className='truncate overflow-visible '>{artist.albums_count} {artist.albums_count > 1 ? "releases" : "release"}</DialogDescription>}
+                            {artist.albums_count && <DialogDescription title={artist.albums_count + " " + (artist.albums_count !== 1 ? "releases" : "release")} className='truncate overflow-visible '>{artist.albums_count > 1 ? "releases" : "release"}</DialogDescription>}
                         </div>
                         <div className="flex items-center w-full justify-between gap-2">
                             {artistResults && <Button size="icon" variant="ghost" onClick={() => {

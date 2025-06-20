@@ -14,13 +14,16 @@ import { ScrollArea } from './ui/scroll-area'
 import { motion, useAnimation } from 'motion/react'
 import { Skeleton } from './ui/skeleton'
 import { useSimpleToast } from "@/hooks/use-simple-toast"
-import Image from 'next/image'
 import DownloadButton from './download-album-button'
 import { filterData } from '@/app/search-view'
 import ArtistDialog from './artist-dialog'
 import axios from 'axios'
 
+// Helper function to create the proxy URL
+const proxyImageUrl = (url: string) => `/api/image-proxy?url=${encodeURIComponent(url)}`;
+
 const ReleaseCard = React.forwardRef<HTMLDivElement, { result: QobuzAlbum | QobuzTrack | QobuzArtist, resolvedTheme: string, showArtistDialog?: boolean }>(({ result, resolvedTheme, showArtistDialog = true }, ref) => {
+    // ... (keep all the existing state hooks: openTracklist, fetchedAlbumData, etc.) ...
     const [openTracklist, setOpenTracklist] = useState(false);
     const [fetchedAlbumData, setFetchedAlbumData] = useState<FetchedQobuzAlbum | null>(null);
 
@@ -51,7 +54,7 @@ const ReleaseCard = React.forwardRef<HTMLDivElement, { result: QobuzAlbum | Qobu
             });
         }
     };
-
+    
     return (
         <div
             className="space-y-2"
@@ -114,19 +117,21 @@ const ReleaseCard = React.forwardRef<HTMLDivElement, { result: QobuzAlbum | Qobu
                     </div>
                 </div>
                 <motion.div
-                    initial={(album || result).image?.small ? { scale: 0.9 } : { scale: 1 }}
+                    initial={(album || result).image?.large ? { scale: 0.9 } : { scale: 1 }}
                     animate={imageAnimationControls}
                     transition={{ duration: 0.1 }}
                     className={cn('absolute left-0 top-0 z-[2] w-full aspect-square transition-all')}
                 >
-                    {(album || result).image?.small ? <>
-                        {getType(result) === "artists" ? <Image fill src={(album || result).image?.small} alt={formatTitle(result)} className={cn("object-cover group-hover:scale-105 transition-all w-full h-full text-[0px]", imageLoaded && "opacity-100")}
-                            sizes="(min-width: 1280px) calc((100vw - 96px) / 7), (min-width: 1024px) calc((100vw - 80px) / 6), (min-width: 768px) calc((100vw - 64px) / 5), (min-width: 640px) calc((100vw - 48px) / 3), calc((100vw - 32px) / 2)"
+                    {(album || result).image?.large ? (
+                        <img
+                            // Use the proxy URL
+                            src={proxyImageUrl((album || result).image.large)}
+                            alt={formatTitle(result)}
+                            className={cn("object-cover group-hover:scale-105 transition-all w-full h-full text-[0px]", imageLoaded && "opacity-100")}
                             onLoad={() => { setImageLoaded(true) }}
-                        /> : <img crossOrigin="anonymous" src={(album || result).image?.small} alt={formatTitle(result)} className={cn("object-cover group-hover:scale-105 transition-all w-full h-full text-[0px]", imageLoaded && "opacity-100")}
-                            onLoad={() => { setImageLoaded(true) }}
-                        />}
-                    </> :
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                    ) : (
                         <motion.div className="flex items-center justify-center bg-secondary w-full h-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                             {filterData.map((filter, index) => {
                                 if (filter.value === getType(result)) {
@@ -134,10 +139,12 @@ const ReleaseCard = React.forwardRef<HTMLDivElement, { result: QobuzAlbum | Qobu
                                 }
                                 return null;
                             })}
-                        </motion.div>}
+                        </motion.div>
+                    )}
                 </motion.div>
                 <Skeleton className='absolute left-0 top-0 z-[1] w-full aspect-square flex items-center justify-center' />
             </div>
+            {/* ... (rest of the component remains the same) ... */}
             <div className="space-y-1">
                 <div className="flex gap-1.5 items-center">
                     {(result as QobuzAlbum | QobuzTrack).parental_warning && <p className='text-[10px] bg-primary text-primary-foreground p-1 rounded-sm aspect-square w-[18px] h-[18px] text-center justify-center items-center flex font-semibold' title='Explicit'>E</p>}
@@ -155,7 +162,7 @@ const ReleaseCard = React.forwardRef<HTMLDivElement, { result: QobuzAlbum | Qobu
                     <div className="flex gap-3 overflow-hidden">
                         <div className="relative shrink-0 aspect-square min-w-[100px] min-h-[100px] rounded-sm overflow-hidden">
                             <Skeleton className='absolute aspect-square w-full h-full' />
-                            {(album || result).image?.small && <img src={(album || result).image?.small} alt={formatTitle(result)} crossOrigin='anonymous' className='absolute aspect-square w-full h-full' />}
+                            {(album || result).image?.small && <img src={proxyImageUrl((album || result).image.small)} alt={formatTitle(result)} className='absolute aspect-square w-full h-full' />}
                         </div>
 
                         <div className="flex w-full flex-col justify-between overflow-hidden">
